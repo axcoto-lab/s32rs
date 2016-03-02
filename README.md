@@ -18,3 +18,11 @@ Standalone mode to try
 go run s.go
 ```
 
+# How to
+
+## Post to server:
+
+```shell
+curl --data "project_id=...&aws_key=..&aws_secret=...&s3_bucket=..." https://127.0.0.1:3001/work
+```
+
