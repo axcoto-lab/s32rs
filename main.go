@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/gorilla/mux"
+	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -20,6 +23,30 @@ type Payload struct {
 func (p *Payload) GetFilename() string {
 	parts := strings.Split(p.S3Bucket, "/")
 	return parts[len(parts)-1]
+}
+
+type Job struct {
+	ID string
+}
+
+func (job *Job) GetStatus() string {
+	dat, err := ioutil.ReadFile("/s32rs/status_" + job.ID)
+	if err != nil {
+		return "unknow"
+	}
+	return string(dat)
+}
+
+func (job *Job) UpdateStatus(status string) {
+	f, err := os.Create("/s32rs/status_" + job.ID)
+	if err != nil {
+		log.Printf("Cannot create status file")
+	}
+	defer f.Close()
+	if _, err := f.WriteString(status); err != nil {
+		log.Printf("Error when update status %s %v", job.ID, err)
+	}
+	f.Sync()
 }
 
 func main() {
@@ -63,6 +90,9 @@ func WorkHandler(w http.ResponseWriter, r *http.Request) {
 func JobHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	jobId := vars["id"]
+	job := Job{
+		ID: jobId,
+	}
 
-	fmt.Fprintf(w, "%s", jobId)
+	fmt.Fprintf(w, "%s", job.GetStatus())
 }
