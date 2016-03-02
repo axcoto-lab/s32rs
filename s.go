@@ -146,6 +146,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
     "user:cluster" character varying(256))`, payload.ProjectID))
 
 	job.UpdateStatus("copy")
+	log.Println("Execute copy command")
 	q := fmt.Sprintf(`COPY aws_billing_%s
 	FROM 's3://%s/%s'
 	credentials 'aws_access_key_id=%s;aws_secret_access_key=%s'
