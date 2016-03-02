@@ -9,6 +9,7 @@ Ship S3 to Redshift using COPY command
 of Redshift to ~/.ssh/authorized_keys file
 2. Install AWS CLI. For simplicity, we use AWS CLI to download/upload s3
    file
+3. Create a directory /s32rs 
 
 # Run
 
