@@ -137,7 +137,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
     resourceid character varying(256),
     "user:cluster" char(1))`, payload.ProjectID)
 	db.Query(schemaQuery)
-	log.Println("Schema: %s", schemaQuery)
+	log.Printf("Schema: %s", schemaQuery)
 
 	job.UpdateStatus("copy")
 	log.Println("Execute copy command")
@@ -147,24 +147,19 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	CSV
 	IGNOREHEADER 1
 	ssh
-	TRUNCATECOLUMNS`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
+	TRUNCATECOLUMNS;`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
 	rows, err := db.Query(q)
 	log.Println("Query run %s\n", q)
+	if err != nil {
+		log.Printf("err write %v. Rows %v", err, rows)
+		job.UpdateStatus(fmt.Sprintf("Fail. Err %v %v", err, rows))
+		return
+	}
 
 	log.Println("Drop extra column")
 	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN \"user:cluster\" RESTRICT", payload.ProjectID)
 	db.Query(dropQuery)
 
-	defer rows.Close()
 	log.Println("Done copy")
 	job.UpdateStatus("done")
-
-	if rows != nil {
-		for rows.Next() {
-			var count int
-			err = rows.Scan(&count)
-
-			log.Printf("Loaded %f", count)
-		}
-	}
 }
