@@ -43,25 +43,17 @@ func checkErr(err error) {
 	}
 }
 
-func fetchS3(from, to string, aws *AwsKey) {
-}
-
-func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket string, aws *AwsKey) {
-	job := Job{jobId}
-	job.UpdateStatus("pending")
-
-	log.Printf("Fetch data fro s3 source")
-	csvSource := fmt.Sprintf("/s32rs/%s_%s", jobId, payload.GetFilename())
-
+func cpS3(from, to string, aws *AwsKey, envs []string) {
 	cmdArgs := []string{"s3", "cp",
-		fmt.Sprintf("s3://%s", payload.S3Bucket),
-		csvSource,
+		from,
+		to,
 		"--source-region", "us-east-1"}
 
 	cmd := exec.Command("/usr/local/bin/aws", cmdArgs...)
 
 	env := os.Environ()
-	env = append(env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", payload.AwsKey), fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", payload.AwsSecret))
+	env = append(env, envs...)
+	env = append(env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", aws.Key), fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", aws.Secret))
 	cmd.Env = env
 
 	log.Printf("Waiting for S3 download to finish...")
@@ -72,6 +64,18 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	} else {
 		log.Printf("Command Output %s\n", cmdOut)
 	}
+
+}
+
+func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket string, aws *AwsKey) {
+	job := Job{jobId}
+	job.UpdateStatus("pending")
+
+	log.Printf("Fetch data fro s3 source")
+	csvSource := fmt.Sprintf("/s32rs/%s_%s", jobId, payload.GetFilename())
+
+	cpS3(fmt.Sprintf("s3://%s", payload.S3Bucket),
+		csvSource, &AwsKey{payload.AwsKey, payload.AwsSecret}, []string{})
 
 	log.Printf("Extract data and rezip in gzip")
 	//exe.Commnad("unzip",
@@ -86,25 +90,10 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	if _, err := f.WriteString(fmt.Sprintf(manifestTmpl, os.Getenv("SSH_IP"), csvSource, os.Getenv("SSH_USER"))); err == nil {
 		log.Printf("Manifest content %s", fmt.Sprintf(manifestTmpl, os.Getenv("SSH_IP"), csvSource, os.Getenv("SSH_USER")))
 
-		cmdArgs := []string{"s3", "cp",
-			manifestSource,
+		cpS3(manifestSource,
 			fmt.Sprintf("s3://%s/%s", manifestBucket, manifest),
-			"--source-region", "us-east-1"}
-
-		cmd := exec.Command("/usr/local/bin/aws", cmdArgs...)
-
-		env := os.Environ()
-		env = append(env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", aws.Key), fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", aws.Secret))
-		cmd.Env = env
-
-		log.Printf("Waiting for Manifest uploading...")
-		if cmdOut, err := cmd.Output(); err != nil {
-			log.Println("Command finished with error: %v", err)
-			fmt.Fprintln(os.Stderr, err)
-			return
-		} else {
-			log.Printf("Command Output %s\n", cmdOut)
-		}
+			aws,
+			[]string{})
 	}
 	log.Printf("Manifest preparing is done")
 
@@ -122,7 +111,8 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	db.Query(fmt.Sprintf("DROP TABLE aws_billing_%s", payload.ProjectID))
 	log.Println("Start creatabe table schema")
 	job.UpdateStatus("create")
-	db.Query(fmt.Sprintf(`CREATE TABLE aws_billing_%s  (
+	//@REF https://forums.aws.amazon.com/thread.jspa?threadID=119125
+	schemaQuery := fmt.Sprintf(`CREATE TABLE aws_billing_%s  (
     invoiceid character varying(256),
     payeraccountid character varying(256),
     linkedaccountid character varying(256),
@@ -139,11 +129,15 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
     itemdescription character varying(256),
     usagestartdate character varying(256),
     usageenddate character varying(256),
-    usagequantity numeric(18,0) NULL,
-    rate numeric(18,0) NULL,
-    cost numeric(18,0) NULL,
+
+		usagequantity numeric(38, 16) NULL,
+		rate numeric(38, 16) NULL,
+		cost numeric(38, 16) NULL,
+
     resourceid character varying(256),
-    "user:cluster" character varying(256))`, payload.ProjectID))
+    "user:cluster" char(1))`, payload.ProjectID)
+	db.Query(schemaQuery)
+	log.Println("Schema: %s", schemaQuery)
 
 	job.UpdateStatus("copy")
 	log.Println("Execute copy command")
@@ -152,9 +146,14 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	credentials 'aws_access_key_id=%s;aws_secret_access_key=%s'
 	CSV
 	IGNOREHEADER 1
-	ssh`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
+	ssh
+	TRUNCATECOLUMNS`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
 	rows, err := db.Query(q)
 	log.Println("Query run %s\n", q)
+
+	log.Println("Drop extra column")
+	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN \"user:cluster\" RESTRICT", payload.ProjectID)
+	db.Query(dropQuery)
 
 	defer rows.Close()
 	log.Println("Done copy")
