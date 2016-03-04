@@ -5,10 +5,10 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	//"io/ioutil"
-
 	"log"
 	"os"
 	"os/exec"
+	"time"
 )
 
 const manifestTmpl = `{
@@ -33,8 +33,9 @@ func doWork(jobId string, payload *Payload) {
 		os.Getenv("PG_HOST"),
 		os.Getenv("PG_PORT"))
 
-	copyToRS(jobId, payload, dbinfo,
-		os.Getenv("AWS_BUCKET_S32RS"), &AwsKey{os.Getenv("AWS_KEY"), os.Getenv("AWS_SECRET")})
+	time.Sleep(3 * time.Second)
+	log.Println(dbinfo)
+	//copyToRS(jobId, payload, dbinfo, os.Getenv("AWS_BUCKET_S32RS"), &AwsKey{os.Getenv("AWS_KEY"), os.Getenv("AWS_SECRET")})
 }
 
 func checkErr(err error) {
@@ -71,15 +72,12 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	job := Job{jobId}
 	job.UpdateStatus("pending")
 
-	log.Printf("Fetch data fro s3 source")
+	log.Printf("Fetch data from s3 source")
 	csvSource := fmt.Sprintf("/s32rs/%s_%s", jobId, payload.GetFilename())
 
 	cpS3(fmt.Sprintf("s3://%s", payload.S3Bucket),
 		csvSource, &AwsKey{payload.AwsKey, payload.AwsSecret}, []string{})
-
-	log.Printf("Extract data and rezip in gzip")
-	//exe.Commnad("unzip",
-	log.Printf("Extract is done")
+	log.Printf("Done fetch data from s3 source")
 
 	log.Printf("Prepare manifest file")
 	manifest := fmt.Sprintf("manifest_%s.json", jobId)
@@ -95,9 +93,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 			aws,
 			[]string{})
 	}
-	log.Printf("Manifest preparing is done")
-
-	log.Printf("DBInfo %s\n", dbinfo)
+	log.Printf("Done Prepare manifest file")
 
 	db, err := sql.Open("postgres", dbinfo)
 

@@ -1,9 +1,6 @@
 package main
 
 import (
-	//"bytes"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"github.com/gorilla/mux"
 	"io/ioutil"
@@ -51,40 +48,36 @@ func (job *Job) UpdateStatus(status string) {
 
 func main() {
 	r := mux.NewRouter()
+	qe := &Queue{
+		Size: 100,
+	}
 
-	r.HandleFunc("/work", WorkHandler)
+	r.HandleFunc("/work", WorkHandler(qe))
 	r.HandleFunc("/job/{id}", JobHandler)
 	http.Handle("/", r)
 
 	http.ListenAndServe(":3001", r)
 }
 
-func genJobId() string {
-	c := 40
-	b := make([]byte, c)
-	_, err := rand.Read(b)
-	if err != nil {
-		fmt.Println("error:", err)
-		return ""
+func WorkHandler(q *Queue) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		//vars := mux.Vars(r)
+
+		p := &Payload{
+			ProjectID: r.FormValue("project_id"),
+			AwsKey:    r.FormValue("aws_key"),
+			AwsSecret: r.FormValue("aws_secret"),
+			S3Bucket:  r.FormValue("s3_bucket"),
+		}
+
+		jobId, err := q.Push(p)
+		if err != nil {
+			//@TODO Return http error code
+			fmt.Fprintf(w, "Cannot create job")
+		} else {
+			fmt.Fprintf(w, "%s", jobId)
+		}
 	}
-	rs := strings.Replace(base64.URLEncoding.EncodeToString(b), "/", "0", -1)
-	return rs
-}
-
-func WorkHandler(w http.ResponseWriter, r *http.Request) {
-	//vars := mux.Vars(r)
-
-	p := &Payload{
-		ProjectID: r.FormValue("project_id"),
-		AwsKey:    r.FormValue("aws_key"),
-		AwsSecret: r.FormValue("aws_secret"),
-		S3Bucket:  r.FormValue("s3_bucket"),
-	}
-
-	jobId := genJobId()
-
-	fmt.Fprintf(w, "%s", jobId)
-	go doWork(jobId, p)
 }
 
 func JobHandler(w http.ResponseWriter, r *http.Request) {
