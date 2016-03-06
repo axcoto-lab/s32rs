@@ -7,9 +7,23 @@ import (
 	"os"
 )
 
-func initServer(r *mux.Router) {
-	http.Handle("/", r)
-	http.ListenAndServe(":3001", r)
+type app struct {
+	Qe *Queue
+	DB *DB
+	R  *mux.Router
+}
+
+func (a *app) init() {
+	router := mux.NewRouter()
+
+	router.Handle("/work", &WorkHandler{a.DB, a.Qe})
+	router.Handle("/job/{id}", &JobHandler{})
+	a.R = router
+}
+
+func initServer(r *app) {
+	http.Handle("/", r.R)
+	http.ListenAndServe(":3001", r.R)
 }
 
 func initQueue() *Queue {

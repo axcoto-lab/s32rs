@@ -108,7 +108,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	log.Println("Start creatabe table schema")
 	job.UpdateStatus("create")
 	//@REF https://forums.aws.amazon.com/thread.jspa?threadID=119125
-	schemaQuery := fmt.Sprintf(`CREATE TABLE aws_billing_%s  (
+	schemaQuery := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS aws_billing_%s  (
     invoiceid character varying(256),
     payeraccountid character varying(256),
     linkedaccountid character varying(256),
@@ -131,7 +131,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 		cost numeric(38, 16) NULL,
 
     resourceid character varying(256),
-    "user:cluster" char(1))`, payload.ProjectID)
+    "user:cluster" char(1))`, "aws_billing_"+payload.ProjectID)
 	db.Query(schemaQuery)
 	log.Printf("Schema: %s", schemaQuery)
 
