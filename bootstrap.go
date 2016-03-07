@@ -24,7 +24,7 @@ func (a *App) init() {
 }
 
 func initWorker(a *App) {
-	a.Worker = &Worker{a}
+	a.Worker = &Worker{5, a}
 	go a.Worker.Work()
 }
 

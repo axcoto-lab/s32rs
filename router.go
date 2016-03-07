@@ -22,6 +22,16 @@ func (p *Payload) GetFilename() string {
 	return parts[len(parts)-1]
 }
 
+func (p *Payload) GenerateRecordIDPrefix() string {
+	s := p.GetFilename()
+	s = strings.Replace(s, "aws-billing-detailed-line-items-with-resources-and-tags-", "", -1)
+	s = strings.Replace(s, ".csv", "", -1)
+	s = strings.Replace(s, ".zip", "", -1)
+	s = strings.Replace(s, ".gzip", "", -1)
+	s = strings.Replace(s, ".gz", "", -1)
+	return s + "-"
+}
+
 type Job struct {
 	Payload *Payload
 	ID      string

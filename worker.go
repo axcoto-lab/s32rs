@@ -24,7 +24,8 @@ type AwsKey struct {
 }
 
 type Worker struct {
-	app *App
+	Size int
+	app  *App
 }
 
 func (w *Worker) perform(job *Job) {
@@ -69,6 +70,7 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	log.Printf("Done fetch data from s3 source")
 
 	log.Printf("Prepare manifest file")
+	job.UpdateStatus("update manifest")
 	manifest := fmt.Sprintf("manifest_%s.json", jobId)
 	manifestSource := fmt.Sprintf("/s32rs/%s", manifest)
 	f, err := os.Create(manifestSource)
@@ -88,7 +90,8 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	log.Println("Create main table")
 	//@REF https://forums.aws.amazon.com/thread.jspa?threadID=119125
 	w.app.DB.CreateBillTable("aws_billing_" + payload.ProjectID)
-	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN  IF EXISTS \"user:cluster\" RESTRICT", payload.ProjectID)
+	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP \"user:cluster\" RESTRICT", payload.ProjectID)
+	log.Println("Drop column query %s", dropQuery)
 	w.app.DB.Query(dropQuery)
 
 	job.UpdateStatus("copy temp table")
@@ -105,27 +108,32 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	rows, err := w.app.DB.Query(q)
 
 	log.Println("Drop extra column")
-	dropQuery = fmt.Sprintf("ALTER TABLE _job_%s DROP COLUMN IF EXISTS \"user:cluster\" RESTRICT", job.ID)
+	dropQuery = fmt.Sprintf("ALTER TABLE _job_%s DROP \"user:cluster\" RESTRICT", job.ID)
 	w.app.DB.Query(dropQuery)
 
 	q = fmt.Sprintf(`UPDATE _job_%s
 	SET recordid=concat('%s', random())
-	WHERE recordid=''`, job.ID, payload.GetFilename())
-	log.Println("Generate temp recordid %s", q)
+	WHERE recordid=''`, job.ID, payload.GenerateRecordIDPrefix())
+	log.Printf("Generate temp recordid %s\n", q)
+	w.app.DB.Query(q)
 
-	log.Println("Delete old row in current table")
 	q = fmt.Sprintf(`DELETE FROM aws_billing_%s
-	WHERE recodid LIKE '%s%'`, payload.ProjectID, payload.GetFilename())
+	WHERE recordid LIKE '%s%%'`, payload.ProjectID, payload.GenerateRecordIDPrefix())
+	log.Printf("Delete generate record id from main table %s\n", q)
 	rows, err = w.app.DB.Query(q)
 
+	job.UpdateStatus("merge temp table")
 	log.Println("Merge temp table to main table")
-	q = fmt.Sprintf(`delete from aws_billing_%s
-	using _job_%s
-	where aws_billing_%s.recordid = _job_%s.recordid
-	`)
+	q = fmt.Sprintf(`DELETE FROM aws_billing_%s
+	USING _job_%s
+	WHERE aws_billing_%s.recordid = _job_%s.recordid
+	`, payload.ProjectID, job.ID, payload.ProjectID, job.ID)
+	log.Printf("Delete old row in current table %s\n", q)
 	rows, err = w.app.DB.Query(q)
-	q = fmt.Sprintf(`insert into aws_billing_%s
-	select * from _job_%s`, payload.ProjectID, job.ID)
+
+	q = fmt.Sprintf(`INSERT INTO aws_billing_%s
+	SELECT * FROM _job_%s`, payload.ProjectID, job.ID)
+	log.Printf("Insert from main table %s\n", q)
 	rows, err = w.app.DB.Query(q)
 
 	log.Println("Drop temp table")
@@ -146,6 +154,8 @@ func (w *Worker) Work() {
 	for {
 		job := <-q.JobChan
 		log.Println("Process job %v", job)
-		go w.perform(job)
+		for i := 1; i <= w.Size; i++ {
+			go w.perform(job)
+		}
 	}
 }

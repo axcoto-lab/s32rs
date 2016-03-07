@@ -47,11 +47,9 @@ func (d *DB) CreateBillTable(table string) {
 		itemdescription character varying(256),
 		usagestartdate character varying(256),
 		usageenddate character varying(256),
-
 		usagequantity numeric(38, 16) NULL,
 		rate numeric(38, 16) NULL,
 		cost numeric(38, 16) NULL,
-
 		resourceid character varying(256),
 		"user:cluster" char(1))`, table)
 	log.Printf("Schema: %s", schemaQuery)

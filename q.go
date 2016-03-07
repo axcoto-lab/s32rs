@@ -11,16 +11,12 @@ import (
 )
 
 type Queue struct {
-	Size        int
-	q           []*Job
-	JobChan     chan *Job
-	ControlChan chan string
+	Size    int
+	JobChan chan *Job
 }
 
 func (q *Queue) init() {
-	q.q = make([]*Job, q.Size, q.Size)
 	q.JobChan = make(chan *Job, q.Size)
-	q.ControlChan = make(chan string)
 }
 
 func genJobId() string {
