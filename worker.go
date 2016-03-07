@@ -85,60 +85,57 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	log.Printf("Done Prepare manifest file")
 
 	log.Println("Start copy")
-	log.Println("Start drop old table")
-	job.UpdateStatus("drop")
-	w.app.DB.Query(fmt.Sprintf("DROP TABLE aws_billing_%s", payload.ProjectID))
-	log.Println("Start creatabe table schema")
-	job.UpdateStatus("create")
+	log.Println("Create main table")
 	//@REF https://forums.aws.amazon.com/thread.jspa?threadID=119125
-	schemaQuery := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS aws_billing_%s  (
-    invoiceid character varying(256),
-    payeraccountid character varying(256),
-    linkedaccountid character varying(256),
-    recordtype character varying(256),
-    recordid character varying(256),
-    productname character varying(256),
-    rateid character varying(256),
-    subscriptionid character varying(256),
-    pricingplanid character varying(256),
-    usagetype character varying(256),
-    operation character varying(256),
-    availabilityzone character varying(256),
-    reservedinstance character varying(256),
-    itemdescription character varying(256),
-    usagestartdate character varying(256),
-    usageenddate character varying(256),
+	w.app.DB.CreateBillTable("aws_billing_" + payload.ProjectID)
+	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN  IF EXISTS \"user:cluster\" RESTRICT", payload.ProjectID)
+	w.app.DB.Query(dropQuery)
 
-		usagequantity numeric(38, 16) NULL,
-		rate numeric(38, 16) NULL,
-		cost numeric(38, 16) NULL,
+	job.UpdateStatus("copy temp table")
+	log.Println("Start create temporary table")
 
-    resourceid character varying(256),
-    "user:cluster" char(1))`, "aws_billing_"+payload.ProjectID)
-	w.app.DB.Query(schemaQuery)
-	log.Printf("Schema: %s", schemaQuery)
-
-	job.UpdateStatus("copy")
-	log.Println("Execute copy command")
-	q := fmt.Sprintf(`COPY aws_billing_%s
+	w.app.DB.CreateBillTable("_job_" + job.ID)
+	q := fmt.Sprintf(`COPY _job_%s
 	FROM 's3://%s/%s'
 	credentials 'aws_access_key_id=%s;aws_secret_access_key=%s'
 	CSV
 	IGNOREHEADER 1
 	ssh
-	TRUNCATECOLUMNS;`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
+	TRUNCATECOLUMNS;`, job.ID, manifestBucket, manifest, aws.Key, aws.Secret)
 	rows, err := w.app.DB.Query(q)
-	log.Println("Query run %s\n", q)
+
+	log.Println("Drop extra column")
+	dropQuery = fmt.Sprintf("ALTER TABLE _job_%s DROP COLUMN IF EXISTS \"user:cluster\" RESTRICT", job.ID)
+	w.app.DB.Query(dropQuery)
+
+	q = fmt.Sprintf(`UPDATE _job_%s
+	SET recordid=concat('%s', random())
+	WHERE recordid=''`, job.ID, payload.GetFilename())
+	log.Println("Generate temp recordid %s", q)
+
+	log.Println("Delete old row in current table")
+	q = fmt.Sprintf(`DELETE FROM aws_billing_%s
+	WHERE recodid LIKE '%s%'`, payload.ProjectID, payload.GetFilename())
+	rows, err = w.app.DB.Query(q)
+
+	log.Println("Merge temp table to main table")
+	q = fmt.Sprintf(`delete from aws_billing_%s
+	using _job_%s
+	where aws_billing_%s.recordid = _job_%s.recordid
+	`)
+	rows, err = w.app.DB.Query(q)
+	q = fmt.Sprintf(`insert into aws_billing_%s
+	select * from _job_%s`, payload.ProjectID, job.ID)
+	rows, err = w.app.DB.Query(q)
+
+	log.Println("Drop temp table")
+	w.app.DB.Query(fmt.Sprintf("DROP TABLE _job_%s", job.ID))
+
 	if err != nil {
 		log.Printf("err write %v. Rows %v", err, rows)
 		job.UpdateStatus(fmt.Sprintf("Fail. Err %v %v", err, rows))
 		return
 	}
-
-	log.Println("Drop extra column")
-	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN \"user:cluster\" RESTRICT", payload.ProjectID)
-	w.app.DB.Query(dropQuery)
-
 	log.Println("Done copy")
 	job.UpdateStatus("done")
 }
