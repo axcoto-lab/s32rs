@@ -151,11 +151,13 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 func (w *Worker) Work() {
 	q := w.app.Qe
 
-	for {
-		job := <-q.JobChan
-		log.Println("Process job %v", job)
-		for i := 1; i <= w.Size; i++ {
-			go w.perform(job)
-		}
+	for i := 1; i <= w.Size; i++ {
+		go func() {
+			for {
+				job := <-q.JobChan
+				log.Println("Process job %v", job)
+				w.perform(job)
+			}
+		}()
 	}
 }
