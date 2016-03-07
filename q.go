@@ -2,21 +2,24 @@ package main
 
 import (
 	//"bytes"
+	"crypto/md5"
 	"crypto/rand"
-	"encoding/base64"
-	"strings"
+	//"encoding/base64"
+	"log"
+	//"strings"
+	"fmt"
 )
 
 type Queue struct {
 	Size        int
-	q           []string
-	JobChan     chan string
+	q           []*Job
+	JobChan     chan *Job
 	ControlChan chan string
 }
 
 func (q *Queue) init() {
-	q.q = make([]string, q.Size, q.Size)
-	q.JobChan = make(chan string)
+	q.q = make([]*Job, q.Size, q.Size)
+	q.JobChan = make(chan *Job, q.Size)
 	q.ControlChan = make(chan string)
 }
 
@@ -27,25 +30,19 @@ func genJobId() string {
 	if err != nil {
 		return ""
 	}
-	rs := strings.Replace(base64.URLEncoding.EncodeToString(b), "/", "0", -1)
-	return rs
+	//rs := strings.Replace(base64.URLEncoding.EncodeToString(b), "/", "0", -1)
+	return fmt.Sprintf("%x", md5.Sum(b))
 }
+
 func (q *Queue) Push(p *Payload) (string, error) {
-	jobId := genJobId()
-	go doWork(jobId, p)
-	return jobId, nil
+	job := &Job{p, genJobId()}
+	log.Println("Push job")
+	q.JobChan <- job
+	log.Println("Done push job")
+	return job.ID, nil
 }
 
-func (q *Queue) start() {
-
-	for {
-		select {
-		case sig := <-q.ControlChan:
-			if sig == "STOP" {
-				return
-			}
-		case job := <-q.JobChan:
-			q.q[len(q.q)+1] = job
-		}
-	}
+func (q *Queue) Pop() *Job {
+	j := <-q.JobChan
+	return j
 }

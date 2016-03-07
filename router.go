@@ -23,7 +23,8 @@ func (p *Payload) GetFilename() string {
 }
 
 type Job struct {
-	ID string
+	Payload *Payload
+	ID      string
 }
 
 func (job *Job) GetStatus() string {
@@ -47,8 +48,7 @@ func (job *Job) UpdateStatus(status string) {
 }
 
 type WorkHandler struct {
-	Db *DB
-	q  *Queue
+	app *App
 }
 
 func (h *WorkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +61,7 @@ func (h *WorkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		S3Bucket:  r.FormValue("s3_bucket"),
 	}
 
-	jobId, err := h.q.Push(p)
+	jobId, err := h.app.Qe.Push(p)
 	if err != nil {
 		//@TODO Return http error code
 		fmt.Fprintf(w, "Cannot create job")

@@ -4,10 +4,13 @@ func main() {
 	qe := initQueue()
 	db := initDB()
 
-	a := &app{
+	app := &App{
 		Qe: qe,
 		DB: db,
 	}
+	app.init()
 
-	initServer(a)
+	initWorker(app)
+
+	initServer(app)
 }

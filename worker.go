@@ -1,14 +1,12 @@
 package main
 
 import (
-	"database/sql"
+	//"database/sql"
 	"fmt"
-	_ "github.com/lib/pq"
 	//"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"time"
 )
 
 const manifestTmpl = `{
@@ -25,23 +23,12 @@ type AwsKey struct {
 	Secret string
 }
 
-func doWork(jobId string, payload *Payload) {
-	dbinfo := fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=disable",
-		os.Getenv("PG_USER"),
-		os.Getenv("PG_PWD"),
-		os.Getenv("PG_DB"),
-		os.Getenv("PG_HOST"),
-		os.Getenv("PG_PORT"))
-
-	time.Sleep(3 * time.Second)
-	log.Println(dbinfo)
-	//copyToRS(jobId, payload, dbinfo, os.Getenv("AWS_BUCKET_S32RS"), &AwsKey{os.Getenv("AWS_KEY"), os.Getenv("AWS_SECRET")})
+type Worker struct {
+	app *App
 }
 
-func checkErr(err error) {
-	if err != nil {
-		panic(err)
-	}
+func (w *Worker) perform(job *Job) {
+	w.copyToRS(job, os.Getenv("AWS_BUCKET_S32RS"), &AwsKey{os.Getenv("AWS_KEY"), os.Getenv("AWS_SECRET")})
 }
 
 func cpS3(from, to string, aws *AwsKey, envs []string) {
@@ -68,8 +55,10 @@ func cpS3(from, to string, aws *AwsKey, envs []string) {
 
 }
 
-func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket string, aws *AwsKey) {
-	job := Job{jobId}
+func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
+	jobId := job.ID
+	payload := job.Payload
+
 	job.UpdateStatus("pending")
 
 	log.Printf("Fetch data from s3 source")
@@ -95,16 +84,10 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	}
 	log.Printf("Done Prepare manifest file")
 
-	db, err := sql.Open("postgres", dbinfo)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	log.Println("Start copy")
 	log.Println("Start drop old table")
 	job.UpdateStatus("drop")
-	db.Query(fmt.Sprintf("DROP TABLE aws_billing_%s", payload.ProjectID))
+	w.app.DB.Query(fmt.Sprintf("DROP TABLE aws_billing_%s", payload.ProjectID))
 	log.Println("Start creatabe table schema")
 	job.UpdateStatus("create")
 	//@REF https://forums.aws.amazon.com/thread.jspa?threadID=119125
@@ -132,7 +115,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 
     resourceid character varying(256),
     "user:cluster" char(1))`, "aws_billing_"+payload.ProjectID)
-	db.Query(schemaQuery)
+	w.app.DB.Query(schemaQuery)
 	log.Printf("Schema: %s", schemaQuery)
 
 	job.UpdateStatus("copy")
@@ -144,7 +127,7 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 	IGNOREHEADER 1
 	ssh
 	TRUNCATECOLUMNS;`, payload.ProjectID, manifestBucket, manifest, aws.Key, aws.Secret)
-	rows, err := db.Query(q)
+	rows, err := w.app.DB.Query(q)
 	log.Println("Query run %s\n", q)
 	if err != nil {
 		log.Printf("err write %v. Rows %v", err, rows)
@@ -154,8 +137,18 @@ func copyToRS(jobId string, payload *Payload, dbinfo string, manifestBucket stri
 
 	log.Println("Drop extra column")
 	dropQuery := fmt.Sprintf("ALTER TABLE aws_billing_%s DROP COLUMN \"user:cluster\" RESTRICT", payload.ProjectID)
-	db.Query(dropQuery)
+	w.app.DB.Query(dropQuery)
 
 	log.Println("Done copy")
 	job.UpdateStatus("done")
+}
+
+func (w *Worker) Work() {
+	q := w.app.Qe
+
+	for {
+		job := <-q.JobChan
+		log.Println("Process job %v", job)
+		go w.perform(job)
+	}
 }
