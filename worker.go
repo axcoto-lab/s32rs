@@ -28,7 +28,7 @@ type Worker struct {
 	app  *App
 }
 
-func (w *Worker) perform(job *Job) {
+func (w *Worker) perform(name string, job *Job) {
 	w.copyToRS(job, os.Getenv("AWS_BUCKET_S32RS"), &AwsKey{os.Getenv("AWS_KEY"), os.Getenv("AWS_SECRET")})
 }
 
@@ -152,12 +152,12 @@ func (w *Worker) Work() {
 	q := w.app.Qe
 
 	for i := 1; i <= w.Size; i++ {
-		go func() {
+		go (func(name string) {
 			for {
 				job := <-q.JobChan
-				log.Println("Process job %v", job)
-				w.perform(job)
+				log.Println("%s Process job %v", name, job)
+				w.perform(name, job)
 			}
-		}()
+		})(fmt.Sprintf("worker-%s", i))
 	}
 }

@@ -11,6 +11,6 @@ func main() {
 	app.init()
 
 	initWorker(app)
-
+	initCert()
 	initServer(app)
 }

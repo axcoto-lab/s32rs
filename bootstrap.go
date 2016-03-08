@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/kabukky/httpscerts"
 	"log"
 	"net/http"
 	"os"
@@ -28,9 +29,20 @@ func initWorker(a *App) {
 	go a.Worker.Work()
 }
 
+func initCert() {
+	err := httpscerts.Check("cert.pem", "key.pem")
+	if err != nil {
+		err = httpscerts.Generate("cert.pem", "key.pem", "0.0.0.0:3002")
+		if err != nil {
+			log.Fatal("Error: Couldn't create https certs.")
+		}
+	}
+}
+
 func initServer(a *App) {
 	http.Handle("/", a.R)
 	http.ListenAndServe(":3001", a.R)
+	http.ListenAndServeTLS(":3002", "cert.pem", "key.pem", a.R)
 }
 
 func initQueue() *Queue {
