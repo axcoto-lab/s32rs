@@ -41,7 +41,10 @@ func initCert() {
 
 func initServer(a *App) {
 	http.Handle("/", a.R)
-	http.ListenAndServe(":3001", a.R)
+	go func() {
+		http.ListenAndServe(":3001", a.R)
+	}()
+
 	http.ListenAndServeTLS(":3002", "cert.pem", "key.pem", a.R)
 }
 
