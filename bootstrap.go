@@ -21,6 +21,7 @@ func (a *App) init() {
 
 	router.Handle("/work", &WorkHandler{a})
 	router.Handle("/job/{id}", &JobHandler{})
+
 	a.R = router
 }
 

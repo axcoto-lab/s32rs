@@ -7,12 +7,13 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 const manifestTmpl = `{
   "entries": [
        {"endpoint":"%s",
-          "command": "unzip -p %s | cat",
+          "command": "%s",
           "mandatory":true,
           "username": "%s"}
   ]
@@ -65,8 +66,7 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	log.Printf("Fetch data from s3 source")
 	csvSource := fmt.Sprintf("/s32rs/%s_%s", jobId, payload.GetFilename())
 
-	cpS3(fmt.Sprintf("s3://%s", payload.S3Bucket),
-		csvSource, &AwsKey{payload.AwsKey, payload.AwsSecret}, []string{})
+	cpS3(fmt.Sprintf("s3://%s", payload.S3Bucket), csvSource, &AwsKey{payload.AwsKey, payload.AwsSecret}, []string{})
 	log.Printf("Done fetch data from s3 source")
 
 	log.Printf("Prepare manifest file")
@@ -76,8 +76,22 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	f, err := os.Create(manifestSource)
 	defer f.Close()
 	f.Sync()
-	if _, err := f.WriteString(fmt.Sprintf(manifestTmpl, os.Getenv("SSH_IP"), csvSource, os.Getenv("SSH_USER"))); err == nil {
-		log.Printf("Manifest content %s", fmt.Sprintf(manifestTmpl, os.Getenv("SSH_IP"), csvSource, os.Getenv("SSH_USER")))
+
+	command := ""
+	switch {
+	case strings.HasSuffix(csvSource, ".csv.zip"):
+		command = fmt.Sprintf("unzip -p %s | cat", csvSource)
+	case strings.HasSuffix(csvSource, ".csv.gz"):
+		command = fmt.Sprintf("gunzip -c %s", csvSource)
+	case strings.HasSuffix(csvSource, ".csv.gzip"):
+		command = fmt.Sprintf("gunzip -c %s", csvSource)
+	default:
+		command = fmt.Sprintf("cat %s", csvSource)
+	}
+
+	manifestContent := fmt.Sprintf(manifestTmpl, os.Getenv("SSH_IP"), command, os.Getenv("SSH_USER"))
+	if _, err := f.WriteString(manifestContent); err == nil {
+		log.Printf("Manifest content %s", manifestContent)
 
 		cpS3(manifestSource,
 			fmt.Sprintf("s3://%s/%s", manifestBucket, manifest),
@@ -105,6 +119,7 @@ func (w *Worker) copyToRS(job *Job, manifestBucket string, aws *AwsKey) {
 	IGNOREHEADER 1
 	ssh
 	TRUNCATECOLUMNS;`, job.ID, manifestBucket, manifest, aws.Key, aws.Secret)
+	log.Printf("Copy command: %s", q)
 	rows, err := w.app.DB.Query(q)
 
 	log.Println("Drop extra column")
