@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/kabukky/httpscerts"
 	"log"
@@ -42,11 +43,15 @@ func initCert() {
 
 func initServer(a *App) {
 	http.Handle("/", a.R)
+
+	//h := handlers.CORS()(a.R)
+	h := handlers.LoggingHandler(os.Stdout, a.R)
+
 	go func() {
-		http.ListenAndServe(":3001", a.R)
+		http.ListenAndServe(":3001", h)
 	}()
 
-	http.ListenAndServeTLS(":3002", "cert.pem", "key.pem", a.R)
+	http.ListenAndServeTLS(":3002", "cert.pem", "key.pem", h)
 }
 
 func initQueue() *Queue {

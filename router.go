@@ -17,6 +17,13 @@ type Payload struct {
 	S3Bucket  string
 }
 
+func (p *Payload) Validate() bool {
+	return p.ProjectID != "" &&
+		p.AwsSecret != "" &&
+		p.AwsKey != "" &&
+		p.S3Bucket != ""
+}
+
 func (p *Payload) GetFilename() string {
 	parts := strings.Split(p.S3Bucket, "/")
 	return parts[len(parts)-1]
@@ -71,10 +78,14 @@ func (h *WorkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		S3Bucket:  r.FormValue("s3_bucket"),
 	}
 
+	if !p.Validate() {
+		http.Error(w, "Invalid Payload", http.StatusBadRequest)
+		return
+	}
+
 	jobId, err := h.app.Qe.Push(p)
 	if err != nil {
-		//@TODO Return http error code
-		fmt.Fprintf(w, "Cannot create job")
+		http.Error(w, "Cannot create job", http.StatusInternalServerError)
 	} else {
 		fmt.Fprintf(w, "%s", jobId)
 	}
